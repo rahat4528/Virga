@@ -20,8 +20,8 @@ A full-stack editorial e-commerce platform and Studio workspace built with **Nex
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/rahat4528/crms.git
-cd crms/modo-web
+git clone https://github.com/rahat4528/Virga.git
+cd Virga/modo-web
 pnpm install
 ```
 
