@@ -1,11 +1,15 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { formatPrice } from "@/lib/cn"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
+import { Loader2, Save } from "lucide-react"
 
 interface OrderViewProps {
   order: {
@@ -28,6 +32,11 @@ interface OrderViewProps {
       postalCode: string
       country: string
     }
+    tracking?: {
+      carrier?: string
+      number?: string
+      url?: string
+    }
     lines: Array<{
       titleSnapshot: string
       qty: number
@@ -44,14 +53,43 @@ interface OrderViewProps {
 }
 
 export function OrderView({ order }: OrderViewProps) {
+  const router = useRouter()
   const [currentState, setCurrentState] = useState(order.state)
+  const [timeline, setTimeline] = useState(order.timeline || [])
+  const [carrier, setCarrier] = useState(order.tracking?.carrier || "")
+  const [trackingNumber, setTrackingNumber] = useState(order.tracking?.number || "")
+  const [note, setNote] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
 
-  async function handleStateChange(newState: string) {
+  async function saveOrderUpdate(nextState: string) {
+    setIsSaving(true)
     try {
-      setCurrentState(newState)
-      toast.success(`Order status updated to ${newState}`)
+      const res = await fetch(`/api/studio/orders/${order._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          state: nextState,
+          note: note.trim() || undefined,
+          tracking:
+            carrier.trim() || trackingNumber.trim()
+              ? { carrier: carrier.trim(), number: trackingNumber.trim() }
+              : undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) {
+        toast.error(data.error?.message || "Failed to update order")
+        return
+      }
+      setCurrentState(data.item.state)
+      setTimeline(data.item.timeline || [])
+      setNote("")
+      toast.success(`Order status saved as ${data.item.state}`)
+      router.refresh()
     } catch {
-      toast.error("Failed to update status")
+      toast.error("Network error while updating order")
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -74,7 +112,11 @@ export function OrderView({ order }: OrderViewProps) {
         </div>
 
         <div className="flex items-center space-x-3">
-          <Select value={currentState} onValueChange={handleStateChange}>
+          <Select
+            value={currentState}
+            disabled={isSaving}
+            onValueChange={(next) => saveOrderUpdate(next)}
+          >
             <SelectTrigger className="w-40 rounded-full text-xs">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
@@ -116,6 +158,12 @@ export function OrderView({ order }: OrderViewProps) {
               <span>Subtotal</span>
               <span>{formatPrice(order.totals.subtotal)}</span>
             </div>
+            {order.totals.discount > 0 && (
+              <div className="flex justify-between text-primary">
+                <span>Discount</span>
+                <span>-{formatPrice(order.totals.discount)}</span>
+              </div>
+            )}
             <div className="flex justify-between text-muted-foreground">
               <span>Shipping</span>
               <span>{order.totals.shipping === 0 ? "Complimentary" : formatPrice(order.totals.shipping)}</span>
@@ -128,6 +176,55 @@ export function OrderView({ order }: OrderViewProps) {
               <span>Total</span>
               <span>{formatPrice(order.totals.total)}</span>
             </div>
+          </div>
+
+          {/* Fulfillment & Tracking Controls */}
+          <div className="pt-4 border-t border-border/60 space-y-3">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Fulfillment Tracking & Note
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="carrier" className="text-xs">Carrier</Label>
+                <Input
+                  id="carrier"
+                  placeholder="DHL Express"
+                  value={carrier}
+                  onChange={(e) => setCarrier(e.target.value)}
+                  className="rounded-xl h-9 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="trackNo" className="text-xs">Tracking Number</Label>
+                <Input
+                  id="trackNo"
+                  placeholder="1Z999AA10123456"
+                  value={trackingNumber}
+                  onChange={(e) => setTrackingNumber(e.target.value)}
+                  className="rounded-xl h-9 text-xs font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="timelineNote" className="text-xs">Timeline Note</Label>
+                <Input
+                  id="timelineNote"
+                  placeholder="Dispatched from NY Atelier"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  className="rounded-xl h-9 text-xs"
+                />
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isSaving}
+              onClick={() => saveOrderUpdate(currentState)}
+              className="rounded-full text-xs"
+            >
+              {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+              Save Tracking & Log Update
+            </Button>
           </div>
         </div>
 
@@ -147,10 +244,11 @@ export function OrderView({ order }: OrderViewProps) {
             <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Order Timeline
             </h4>
-            <div className="space-y-2">
-              {order.timeline?.map((t, idx) => (
+            <div className="space-y-2.5">
+              {timeline.map((t, idx) => (
                 <div key={idx} className="text-xs">
                   <span className="font-medium text-foreground block">{t.state}</span>
+                  {t.note && <span className="text-muted-foreground block">{t.note}</span>}
                   <span className="text-muted-foreground text-[11px]">
                     {new Date(t.at).toLocaleDateString()}
                   </span>
@@ -165,4 +263,3 @@ export function OrderView({ order }: OrderViewProps) {
 }
 
 export default OrderView
-

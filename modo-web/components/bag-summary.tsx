@@ -2,38 +2,67 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { ArrowRight, ShieldCheck } from "lucide-react"
+import { ArrowRight, ShieldCheck, X, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { formatPrice } from "@/lib/cn"
+import { computeOrderTotals } from "@/lib/commerce"
 import { toast } from "sonner"
 
 interface BagSummaryProps {
   subtotal: number
-  onApplyPromo?: (code: string) => void
+  onApplyPromo?: (result: { code: string; discount: number; freeShipping: boolean }) => void
+  onClearPromo?: () => void
+  appliedPromoCode?: string
   promoDiscount?: number
+  freeShippingOverride?: boolean
 }
 
-export function BagSummary({ subtotal, onApplyPromo, promoDiscount = 0 }: BagSummaryProps) {
-  const [promoInput, setPromoInput] = useState("")
+export function BagSummary({
+  subtotal,
+  onApplyPromo,
+  onClearPromo,
+  appliedPromoCode = "",
+  promoDiscount = 0,
+  freeShippingOverride = false,
+}: BagSummaryProps) {
+  const [promoInput, setPromoInput] = useState(appliedPromoCode)
+  const [isApplying, setIsApplying] = useState(false)
 
-  const shipping = subtotal >= 150 || subtotal === 0 ? 0 : 12
-  const tax = Math.round(subtotal * 0.08 * 100) / 100
-  const total = Math.max(0, subtotal - promoDiscount + shipping + tax)
+  const totals = computeOrderTotals({
+    subtotal,
+    discount: promoDiscount,
+    freeShippingThreshold: freeShippingOverride ? 0 : 150,
+    standardShippingRate: freeShippingOverride ? 0 : 12,
+  })
 
-  function handlePromoSubmit(e: React.FormEvent) {
+  async function handlePromoSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!promoInput.trim()) return
+    const clean = promoInput.trim().toUpperCase()
+    if (!clean) return
 
-    const code = promoInput.trim().toUpperCase()
-    if (code === "VIRGA10" || code === "MODO10") {
-      onApplyPromo?.("VIRGA10")
-      toast.success("Promo code VIRGA10 applied (10% off)")
-    } else if (code === "FREESHIP") {
-      onApplyPromo?.("FREESHIP")
-      toast.success("Promo code FREESHIP applied (Free shipping)")
-    } else {
-      toast.error("Invalid or expired promo code")
+    setIsApplying(true)
+    try {
+      const res = await fetch("/api/promos/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: clean, subtotal }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) {
+        toast.error(data.error?.message || "Invalid or expired promo code")
+        return
+      }
+      onApplyPromo?.({
+        code: data.code,
+        discount: data.discount || 0,
+        freeShipping: Boolean(data.freeShipping),
+      })
+      toast.success(data.message || `Promo code ${data.code} applied`)
+    } catch {
+      toast.error("Could not validate promo code")
+    } finally {
+      setIsApplying(false)
     }
   }
 
@@ -46,46 +75,76 @@ export function BagSummary({ subtotal, onApplyPromo, promoDiscount = 0 }: BagSum
       <div className="space-y-3 text-sm">
         <div className="flex justify-between text-muted-foreground">
           <span>Subtotal</span>
-          <span className="font-medium text-foreground tracking-tight">{formatPrice(subtotal)}</span>
+          <span className="font-medium text-foreground tracking-tight">
+            {formatPrice(totals.subtotal)}
+          </span>
         </div>
 
-        {promoDiscount > 0 && (
+        {totals.discount > 0 && (
           <div className="flex justify-between text-primary font-medium">
-            <span>Promotional Savings</span>
-            <span>-{formatPrice(promoDiscount)}</span>
+            <span>Promotional Savings ({appliedPromoCode})</span>
+            <span>-{formatPrice(totals.discount)}</span>
           </div>
         )}
 
         <div className="flex justify-between text-muted-foreground">
           <span>Carbon-Neutral Delivery</span>
           <span className="font-medium text-foreground">
-            {shipping === 0 ? "Complimentary" : formatPrice(shipping)}
+            {totals.shipping === 0 ? "Complimentary" : formatPrice(totals.shipping)}
           </span>
         </div>
 
         <div className="flex justify-between text-muted-foreground">
           <span>Estimated Taxes (8%)</span>
-          <span className="font-medium text-foreground tracking-tight">{formatPrice(tax)}</span>
+          <span className="font-medium text-foreground tracking-tight">
+            {formatPrice(totals.tax)}
+          </span>
         </div>
 
         <div className="border-t border-border/80 pt-4 flex justify-between text-base font-bold text-foreground">
           <span>Estimated Total</span>
-          <span className="font-heading text-lg">{formatPrice(total)}</span>
+          <span className="font-heading text-lg">{formatPrice(totals.total)}</span>
         </div>
       </div>
 
       {/* Promo Code Form */}
-      <form onSubmit={handlePromoSubmit} className="flex gap-2 pt-1">
-        <Input
-          placeholder="PROMO CODE"
-          value={promoInput}
-          onChange={(e) => setPromoInput(e.target.value)}
-          className="rounded-lg text-xs font-mono uppercase h-9 bg-background"
-        />
-        <Button type="submit" variant="outline" className="rounded-lg text-xs px-4 h-9 shrink-0">
-          Apply
-        </Button>
-      </form>
+      {appliedPromoCode ? (
+        <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-secondary/10 border border-secondary/30 text-xs">
+          <span className="font-mono font-semibold text-secondary">
+            Applied: {appliedPromoCode}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setPromoInput("")
+              onClearPromo?.()
+            }}
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+            aria-label="Remove promo code"
+          >
+            <X className="h-3.5 w-3.5" />
+            <span>Remove</span>
+          </button>
+        </div>
+      ) : (
+        <form onSubmit={handlePromoSubmit} className="flex gap-2 pt-1">
+          <Input
+            placeholder="PROMO CODE"
+            value={promoInput}
+            onChange={(e) => setPromoInput(e.target.value)}
+            disabled={isApplying || subtotal <= 0}
+            className="rounded-lg text-xs font-mono uppercase h-9 bg-background"
+          />
+          <Button
+            type="submit"
+            variant="outline"
+            disabled={isApplying || subtotal <= 0}
+            className="rounded-lg text-xs px-4 h-9 shrink-0"
+          >
+            {isApplying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Apply"}
+          </Button>
+        </form>
+      )}
 
       {subtotal > 0 ? (
         <Button asChild size="lg" className="w-full rounded-full font-medium shadow-sm h-11 text-sm">

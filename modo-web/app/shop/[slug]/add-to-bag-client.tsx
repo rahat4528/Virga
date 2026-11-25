@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { ShoppingBag, Heart, Check } from "lucide-react"
 import { toast } from "sonner"
 import type { ItemDto } from "@/types/item"
+import { addToStoredBag, getStoredWishlist, toggleStoredWishlist } from "@/lib/bag"
 
 interface AddToBagClientProps {
   item: ItemDto
@@ -19,15 +20,30 @@ export function AddToBagClient({ item }: AddToBagClientProps) {
   const selectedOption = options.find((o) => o.sku === selectedOptionSku)
   const isSoldOut = item.state === "sold-out" || (selectedOption && selectedOption.stock <= 0)
 
+  const cover =
+    item.gallery?.find((g) => g.isCover)?.src ||
+    item.gallery?.[0]?.src ||
+    "/placeholder.jpg"
+
+  useEffect(() => {
+    const localSaved = getStoredWishlist().some((w) => w.itemId === item._id)
+    setIsWishlisted(localSaved)
+
+    fetch("/api/me/wishlist")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.ok && Array.isArray(data.items)) {
+          const inDb = data.items.some((w: { _id: string }) => w._id === item._id)
+          if (inDb) setIsWishlisted(true)
+        }
+      })
+      .catch(() => {})
+  }, [item._id])
+
   function handleAddToBag() {
     if (isSoldOut) return
 
-    const cover =
-      item.gallery?.find((g) => g.isCover)?.src ||
-      item.gallery?.[0]?.src ||
-      "/placeholder.jpg"
-
-    const bagItem = {
+    addToStoredBag({
       id: `${item._id}-${selectedOptionSku || "std"}`,
       itemId: item._id,
       title: item.title,
@@ -37,32 +53,43 @@ export function AddToBagClient({ item }: AddToBagClientProps) {
       qty: 1,
       optionLabel: selectedOption?.label || undefined,
       optionSku: selectedOptionSku || undefined,
-    }
+    })
 
-    try {
-      const stored = localStorage.getItem("virga_bag") || localStorage.getItem("modo_bag")
-      let bag = stored ? JSON.parse(stored) : []
-      if (!Array.isArray(bag)) bag = []
-
-      const existingIndex = bag.findIndex((b: { id: string }) => b.id === bagItem.id)
-      if (existingIndex > -1) {
-        bag[existingIndex].qty += 1
-      } else {
-        bag.push(bagItem)
-      }
-
-      localStorage.setItem("virga_bag", JSON.stringify(bag))
-      setIsAdded(true)
-      toast.success(`Added ${item.title} to your bag`)
-      setTimeout(() => setIsAdded(false), 2000)
-    } catch {
-      toast.error("Could not update bag")
-    }
+    setIsAdded(true)
+    toast.success(`Added ${item.title} to your bag`)
+    setTimeout(() => setIsAdded(false), 2000)
   }
 
-  function toggleWishlist() {
-    setIsWishlisted(!isWishlisted)
-    toast(isWishlisted ? "Removed from saved pieces" : "Saved to your wishlist")
+  async function toggleWishlist() {
+    const collectionTitle =
+      typeof item.collection === "object" && item.collection?.title ? item.collection.title : undefined
+
+    const { saved } = toggleStoredWishlist({
+      itemId: item._id,
+      title: item.title,
+      slug: item.slug,
+      price: item.price,
+      listPrice: item.listPrice,
+      image: cover,
+      collectionTitle,
+    })
+    setIsWishlisted(saved)
+
+    try {
+      await fetch(saved ? "/api/me/wishlist" : `/api/me/wishlist?itemId=${encodeURIComponent(item._id)}`, {
+        method: saved ? "POST" : "DELETE",
+        ...(saved
+          ? {
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ itemId: item._id }),
+            }
+          : {}),
+      })
+    } catch {
+      // Guest fallback already persisted locally
+    }
+
+    toast(saved ? "Saved to your wishlist" : "Removed from saved pieces")
   }
 
   return (
@@ -143,4 +170,3 @@ export function AddToBagClient({ item }: AddToBagClientProps) {
     </div>
   )
 }
-

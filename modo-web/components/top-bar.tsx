@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { useRouter, usePathname } from "next/navigation"
 import { Search, ShoppingBag, User, Menu, X, ArrowRight } from "lucide-react"
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { BAG_UPDATED_EVENT, getStoredBag } from "@/lib/bag"
 
 interface CollectionItem {
   _id: string
@@ -25,6 +26,7 @@ export function TopBar() {
   const [collections, setCollections] = useState<CollectionItem[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [bagCount, setBagCount] = useState(0)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     async function loadCollections() {
@@ -42,19 +44,31 @@ export function TopBar() {
     }
     loadCollections()
 
-    // Read initial bag count from localStorage
-    if (typeof window !== "undefined") {
-      try {
-        const storedBag = localStorage.getItem("virga_bag") || localStorage.getItem("modo_bag")
-        if (storedBag) {
-          const parsed = JSON.parse(storedBag)
-          if (Array.isArray(parsed)) {
-            setBagCount(parsed.reduce((sum: number, item: { qty?: number }) => sum + (item.qty || 1), 0))
-          }
+    const syncBagCount = () => {
+      const items = getStoredBag()
+      setBagCount(items.reduce((sum, item) => sum + (item.qty || 1), 0))
+    }
+
+    syncBagCount()
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault()
+        if (window.innerWidth < 768) {
+          setIsMobileSearchOpen(true)
+        } else {
+          searchInputRef.current?.focus()
         }
-      } catch {
-        // ignore
       }
+    }
+
+    window.addEventListener(BAG_UPDATED_EVENT, syncBagCount)
+    window.addEventListener("storage", syncBagCount)
+    window.addEventListener("keydown", onKeyDown)
+    return () => {
+      window.removeEventListener(BAG_UPDATED_EVENT, syncBagCount)
+      window.removeEventListener("storage", syncBagCount)
+      window.removeEventListener("keydown", onKeyDown)
     }
   }, [])
 
@@ -173,9 +187,10 @@ export function TopBar() {
             <div className="relative w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
               <Input
+                ref={searchInputRef}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search collection, fabric…"
+                placeholder="Search collection, fabric… (⌘K)"
                 className="pl-8.5 pr-3 h-8.5 rounded-full bg-muted/50 border-border/70 hover:border-border focus:border-foreground focus:bg-background transition-colors text-xs"
               />
             </div>

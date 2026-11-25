@@ -31,6 +31,8 @@ export const CreateOrderSchema = z.object({
       country: z.string().trim().max(50).default("US"),
     })
     .optional(),
+  promoCode: z.string().trim().max(32).optional(),
+  shippingMethod: z.enum(["standard", "express"]).default("standard"),
   paymentProvider: z.string().max(30).default("stripe"),
 })
 

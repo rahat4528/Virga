@@ -6,12 +6,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { Loader2, ShieldCheck, Lock, CheckCircle2 } from "lucide-react"
+import { Loader2, ShieldCheck, Lock } from "lucide-react"
 import { toast } from "sonner"
 import type { BagItemData } from "./bag-line"
+import { clearStoredBag, getStoredPromo } from "@/lib/bag"
 
 interface CheckoutFlowProps {
   items: BagItemData[]
+  shippingMethod?: "standard" | "express"
+  onShippingMethodChange?: (method: "standard" | "express") => void
+  promoCode?: string
 }
 
 interface SavedAddress {
@@ -25,7 +29,12 @@ interface SavedAddress {
   isDefault?: boolean
 }
 
-export function CheckoutFlow({ items }: CheckoutFlowProps) {
+export function CheckoutFlow({
+  items,
+  shippingMethod: externalShippingMethod,
+  onShippingMethodChange,
+  promoCode: externalPromoCode,
+}: CheckoutFlowProps) {
   const router = useRouter()
   const [step, setStep] = useState<"shipping" | "payment">("shipping")
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -39,7 +48,12 @@ export function CheckoutFlow({ items }: CheckoutFlowProps) {
   const [state, setState] = useState("")
   const [postalCode, setPostalCode] = useState("")
   const [country, setCountry] = useState("US")
-  const [shippingMethod, setShippingMethod] = useState("standard")
+  const [internalShippingMethod, setInternalShippingMethod] = useState<"standard" | "express">("standard")
+  const shippingMethod = externalShippingMethod ?? internalShippingMethod
+  const setShippingMethod = (val: "standard" | "express") => {
+    setInternalShippingMethod(val)
+    onShippingMethodChange?.(val)
+  }
 
   // Saved addresses state for logged-in users
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([])
@@ -60,14 +74,14 @@ export function CheckoutFlow({ items }: CheckoutFlowProps) {
             if (session.user.email) setEmail((prev) => prev || session.user.email)
             if (session.user.name) setFullName((prev) => prev || session.user.name)
 
-            // Try loading saved addresses
             try {
               const addrRes = await fetch("/api/me/addresses")
               if (addrRes.ok) {
                 const addrData = await addrRes.json()
-                if (addrData?.data?.addresses && Array.isArray(addrData.data.addresses)) {
-                  setSavedAddresses(addrData.data.addresses)
-                  const defaultAddr = addrData.data.addresses.find((a: SavedAddress) => a.isDefault) || addrData.data.addresses[0]
+                const addresses: SavedAddress[] = addrData?.addresses || addrData?.data?.addresses || []
+                if (Array.isArray(addresses) && addresses.length > 0) {
+                  setSavedAddresses(addresses)
+                  const defaultAddr = addresses.find((a) => a.isDefault) || addresses[0]
                   if (defaultAddr) {
                     setStreet((prev) => prev || defaultAddr.street || "")
                     setCity((prev) => prev || defaultAddr.city || "")
@@ -147,6 +161,7 @@ export function CheckoutFlow({ items }: CheckoutFlowProps) {
 
     setIsSubmitting(true)
     try {
+      const activePromo = externalPromoCode ?? getStoredPromo()
       const res = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -166,17 +181,15 @@ export function CheckoutFlow({ items }: CheckoutFlowProps) {
             postalCode,
             country,
           },
+          shippingMethod,
+          promoCode: activePromo || undefined,
           paymentProvider: "stripe",
         }),
       })
 
       const data = await res.json()
       if (res.ok && data.ok) {
-        // Clear local bag
-        if (typeof window !== "undefined") {
-          localStorage.removeItem("virga_bag")
-          localStorage.removeItem("modo_bag")
-        }
+        clearStoredBag()
         toast.success("Order confirmed!")
         router.push(`/checkout/confirmed?orderNo=${data.item.orderNo}`)
       } else {
@@ -342,7 +355,11 @@ export function CheckoutFlow({ items }: CheckoutFlowProps) {
 
           <div className="space-y-4 pt-4 border-t border-border/60">
             <h3 className="font-heading text-lg font-bold text-foreground">Delivery Method</h3>
-            <RadioGroup value={shippingMethod} onValueChange={setShippingMethod} className="space-y-3">
+            <RadioGroup
+              value={shippingMethod}
+              onValueChange={(v) => setShippingMethod(v === "express" ? "express" : "standard")}
+              className="space-y-3"
+            >
               <label
                 htmlFor="std"
                 className="flex items-center justify-between p-4 rounded-xl border border-border/80 bg-card cursor-pointer hover:border-primary transition-colors min-h-[56px]"

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation"
+import type { Metadata } from "next"
 import Image from "next/image"
 import Link from "next/link"
 import { ArrowUpRight } from "lucide-react"
@@ -16,6 +17,20 @@ interface CollectionPageProps {
 }
 
 export const dynamic = "force-dynamic"
+
+export async function generateMetadata({ params }: CollectionPageProps): Promise<Metadata> {
+  await dbConnect()
+  const { slug } = await params
+  const collection = await Collection.findOne({ slug, isVisible: true }).lean()
+  if (!collection) return { title: "Collection Not Found" }
+  return {
+    title: collection.metaTitle || collection.title,
+    description:
+      collection.metaDescription ||
+      collection.description ||
+      `Explore ${collection.title} from Virga.`,
+  }
+}
 
 export default async function CollectionDetailPage({ params }: CollectionPageProps) {
   await dbConnect()

@@ -9,18 +9,36 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
-import { Mail, Phone, MapPin } from "lucide-react"
+import { Mail, Phone, MapPin, Loader2 } from "lucide-react"
 
 export default function ReachUsPage() {
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [message, setMessage] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSent, setIsSent] = useState(false)
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setIsSent(true)
-    toast.success("Thank you. Our studio concierge will reply within 24 hours.")
+    setIsSubmitting(true)
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, message }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) {
+        toast.error(data.error?.message || "Please check your inquiry details and try again.")
+        return
+      }
+      setIsSent(true)
+      toast.success("Thank you. Our studio concierge will reply within 24 hours.")
+    } catch {
+      toast.error("Network error while sending inquiry")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -45,26 +63,68 @@ export default function ReachUsPage() {
           {/* Form */}
           <div className="p-6 rounded-3xl bg-card border border-border/80 shadow-sm">
             {isSent ? (
-              <div className="py-12 text-center space-y-2">
+              <div className="py-12 text-center space-y-3">
                 <h3 className="font-heading text-lg font-bold text-foreground">Message Dispatched</h3>
                 <p className="text-xs text-muted-foreground">We look forward to speaking with you shortly.</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setIsSent(false)
+                    setMessage("")
+                  }}
+                  className="rounded-full text-xs"
+                >
+                  Send Another Message
+                </Button>
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="c-name">Your Name</Label>
-                  <Input id="c-name" required value={name} onChange={(e) => setName(e.target.value)} className="rounded-xl" />
+                  <Input
+                    id="c-name"
+                    required
+                    disabled={isSubmitting}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="rounded-xl"
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="c-email">Email Address</Label>
-                  <Input id="c-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="rounded-xl" />
+                  <Input
+                    id="c-email"
+                    type="email"
+                    required
+                    disabled={isSubmitting}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="rounded-xl"
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="c-msg">Inquiry Details</Label>
-                  <Textarea id="c-msg" required value={message} onChange={(e) => setMessage(e.target.value)} className="rounded-xl min-h-28" />
+                  <Textarea
+                    id="c-msg"
+                    required
+                    minLength={10}
+                    disabled={isSubmitting}
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    className="rounded-xl min-h-28"
+                  />
                 </div>
-                <Button type="submit" className="w-full rounded-full shadow-sm">
-                  Send Inquiry
+                <Button type="submit" disabled={isSubmitting} className="w-full rounded-full shadow-sm">
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Dispatching…
+                    </>
+                  ) : (
+                    "Send Inquiry"
+                  )}
                 </Button>
               </form>
             )}
@@ -105,4 +165,3 @@ export default function ReachUsPage() {
     </div>
   )
 }
-

@@ -1,11 +1,15 @@
 import { z } from "zod"
+import { isSafeImageSource } from "../lib/commerce"
 
 export const JournalEntrySchema = z.object({
   title: z.string().min(2),
   slug: z.string().optional(),
   excerpt: z.string().min(5),
   body: z.string().min(10),
-  coverImage: z.string().url().optional(),
+  coverImage: z
+    .string()
+    .refine(isSafeImageSource, "Cover image URL or path must be valid")
+    .optional(),
   labels: z.array(z.string()).default([]),
   author: z
     .object({

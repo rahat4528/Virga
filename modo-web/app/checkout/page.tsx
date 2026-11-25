@@ -7,32 +7,51 @@ import TopBar from "@/components/top-bar"
 import SiteFooter from "@/components/site-footer"
 import CheckoutFlow from "@/components/checkout-flow"
 import { formatPrice } from "@/lib/cn"
+import { computeOrderTotals } from "@/lib/commerce"
+import { getStoredBag, getStoredPromo } from "@/lib/bag"
 import type { BagItemData } from "@/components/bag-line"
 
 export default function CheckoutPage() {
   const [items, setItems] = useState<BagItemData[]>([])
   const [isLoaded, setIsLoaded] = useState(false)
+  const [shippingMethod, setShippingMethod] = useState<"standard" | "express">("standard")
+  const [promoCode, setPromoCode] = useState("")
+  const [promoDiscount, setPromoDiscount] = useState(0)
+  const [freeShippingOverride, setFreeShippingOverride] = useState(false)
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("virga_bag") || localStorage.getItem("modo_bag")
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        if (Array.isArray(parsed)) {
-          setItems(parsed)
-        }
-      }
-    } catch {
-      // ignore
-    } finally {
-      setIsLoaded(true)
+    const bagItems = getStoredBag()
+    setItems(bagItems)
+    const savedPromo = getStoredPromo()
+    const currentSubtotal = bagItems.reduce((sum, item) => sum + item.price * item.qty, 0)
+
+    if (savedPromo && currentSubtotal > 0) {
+      fetch("/api/promos/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: savedPromo, subtotal: currentSubtotal }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data?.ok) {
+            setPromoCode(data.code)
+            setPromoDiscount(data.discount || 0)
+            setFreeShippingOverride(Boolean(data.freeShipping))
+          }
+        })
+        .catch(() => {})
     }
+    setIsLoaded(true)
   }, [])
 
   const subtotal = items.reduce((sum, item) => sum + item.price * item.qty, 0)
-  const shipping = subtotal >= 150 || subtotal === 0 ? 0 : 12
-  const tax = Math.round(subtotal * 0.08 * 100) / 100
-  const total = subtotal + shipping + tax
+  const totals = computeOrderTotals({
+    subtotal,
+    discount: promoDiscount,
+    freeShippingThreshold:
+      shippingMethod === "express" ? Number.MAX_SAFE_INTEGER : freeShippingOverride ? 0 : 150,
+    standardShippingRate: shippingMethod === "express" ? 25 : freeShippingOverride ? 0 : 12,
+  })
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
@@ -59,7 +78,12 @@ export default function CheckoutPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10">
             {/* Form */}
             <div className="lg:col-span-7">
-              <CheckoutFlow items={items} />
+              <CheckoutFlow
+                items={items}
+                shippingMethod={shippingMethod}
+                onShippingMethodChange={setShippingMethod}
+                promoCode={promoCode}
+              />
             </div>
 
             {/* Sidebar Summary */}
@@ -77,7 +101,9 @@ export default function CheckoutPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-foreground truncate">{item.title}</p>
-                        <p className="text-[11px] text-muted-foreground font-mono">Qty: {item.qty}</p>
+                        <p className="text-[11px] text-muted-foreground font-mono">
+                          Qty: {item.qty}{item.optionLabel ? ` · ${item.optionLabel}` : ""}
+                        </p>
                       </div>
                       <span className="text-xs font-semibold tracking-tight">{formatPrice(item.price * item.qty)}</span>
                     </div>
@@ -87,19 +113,27 @@ export default function CheckoutPage() {
                 <div className="border-t border-border/80 pt-3 space-y-2 text-xs">
                   <div className="flex justify-between text-muted-foreground">
                     <span>Subtotal</span>
-                    <span className="font-medium text-foreground tracking-tight">{formatPrice(subtotal)}</span>
+                    <span className="font-medium text-foreground tracking-tight">{formatPrice(totals.subtotal)}</span>
                   </div>
+                  {totals.discount > 0 && (
+                    <div className="flex justify-between text-primary font-medium">
+                      <span>Promo ({promoCode})</span>
+                      <span>-{formatPrice(totals.discount)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-muted-foreground">
-                    <span>Delivery</span>
-                    <span className="font-medium text-foreground">{shipping === 0 ? "Complimentary" : formatPrice(shipping)}</span>
+                    <span>Delivery ({shippingMethod === "express" ? "Express" : "Standard"})</span>
+                    <span className="font-medium text-foreground">
+                      {totals.shipping === 0 ? "Complimentary" : formatPrice(totals.shipping)}
+                    </span>
                   </div>
                   <div className="flex justify-between text-muted-foreground">
                     <span>Estimated Tax (8%)</span>
-                    <span className="font-medium text-foreground tracking-tight">{formatPrice(tax)}</span>
+                    <span className="font-medium text-foreground tracking-tight">{formatPrice(totals.tax)}</span>
                   </div>
                   <div className="flex justify-between font-bold text-sm text-foreground pt-3 border-t border-border/60">
                     <span>Total Due</span>
-                    <span className="font-heading text-base">{formatPrice(total)}</span>
+                    <span className="font-heading text-base">{formatPrice(totals.total)}</span>
                   </div>
                 </div>
               </div>

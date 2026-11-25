@@ -1,19 +1,14 @@
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
+import dbConnect from "@/lib/db"
+import Exchange from "@/models/Exchange"
+import { ExchangesManager, type ExchangeRow } from "@/components/studio/exchanges-manager"
 
-const mockExchanges = [
-  { id: "EX-101", orderNo: "MD-2026-891204", client: "Sophia Chen", piece: "Relaxed Wool Blazer (Size S → M)", reason: "Fit adjustment", status: "Approved" },
-  { id: "EX-102", orderNo: "MD-2026-441920", client: "Julian Rivera", piece: "Penny Loafer", reason: "Color preference", status: "Pending Inspection" },
-]
+export const dynamic = "force-dynamic"
 
-export default function StudioExchangesPage() {
+export default async function StudioExchangesPage() {
+  await dbConnect()
+  const docs = await Exchange.find().sort({ addedAt: -1 }).lean()
+  const exchanges: ExchangeRow[] = JSON.parse(JSON.stringify(docs))
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="pb-2 border-b border-border/60">
@@ -25,37 +20,7 @@ export default function StudioExchangesPage() {
         </p>
       </div>
 
-      <div className="rounded-2xl border border-border/80 bg-card overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead>Exchange ID</TableHead>
-              <TableHead>Order #</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Piece & Exchange Request</TableHead>
-              <TableHead>Reason</TableHead>
-              <TableHead className="text-right">Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {mockExchanges.map((ex) => (
-              <TableRow key={ex.id}>
-                <TableCell className="font-mono text-xs font-bold text-foreground">{ex.id}</TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground">{ex.orderNo}</TableCell>
-                <TableCell className="text-sm font-medium">{ex.client}</TableCell>
-                <TableCell className="text-sm text-foreground/90">{ex.piece}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{ex.reason}</TableCell>
-                <TableCell className="text-right">
-                  <Badge variant="outline" className="rounded-full text-[10px]">
-                    {ex.status}
-                  </Badge>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      <ExchangesManager initialExchanges={exchanges} />
     </div>
   )
 }
-

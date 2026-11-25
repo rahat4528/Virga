@@ -2,12 +2,16 @@ import { NextRequest } from "next/server"
 import dbConnect from "@/lib/db"
 import Order, { generateOrderNumber } from "@/models/Order"
 import Item from "@/models/Item"
+import PromoCode from "@/models/PromoCode"
+import StoreSettings from "@/models/StoreSettings"
 import { okResponse, failResponse } from "@/lib/api"
 import { auth } from "@/auth"
 import { rateLimit, getClientIp, RateLimits } from "@/lib/rate-limit"
 import { CreateOrderSchema } from "@/types/order"
+import { computeOrderTotals, evaluatePromoDiscount } from "@/lib/commerce"
+import { isStudioRole } from "@/lib/auth-guards"
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     const session = await auth()
     if (!session?.user) {
@@ -15,8 +19,7 @@ export async function GET(req: NextRequest) {
     }
 
     await dbConnect()
-    const role = session.user.role || "client"
-    const isStaff = ["staff", "manager", "owner", "admin"].includes(role)
+    const isStaff = isStudioRole(session.user.role)
 
     // Resource ownership enforcement: customers only see their own orders
     const query = isStaff
@@ -35,7 +38,6 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  // Rate limiting against automated checkout floods
   const ip = getClientIp(req)
   const limitCheck = rateLimit(`orders:${ip}`, RateLimits.ORDERS.limit, RateLimits.ORDERS.windowMs)
   if (!limitCheck.success) {
@@ -55,9 +57,8 @@ export async function POST(req: NextRequest) {
     }
 
     await dbConnect()
-    const { email, lines, shipTo, billTo, paymentProvider } = parsed.data
+    const { email, lines, shipTo, billTo, promoCode, shippingMethod, paymentProvider } = parsed.data
 
-    // If customer is authenticated, enforce identity binding to prevent spoofing
     const verifiedEmail = session?.user?.email
       ? session.user.email.toLowerCase()
       : email?.toLowerCase()
@@ -68,18 +69,34 @@ export async function POST(req: NextRequest) {
 
     const clientId = session?.user?.id || undefined
 
-    // Fetch items from DB to compute real verified prices (never trust client)
+    // Fetch catalog items and store shipping/tax settings concurrently
     const itemIds = lines.map((l) => l.itemId)
-    const dbItems = await Item.find({ _id: { $in: itemIds } }).lean()
+    const [dbItems, settingsDoc] = await Promise.all([
+      Item.find({ _id: { $in: itemIds } }).lean(),
+      StoreSettings.findOne({ key: "default" }).lean(),
+    ])
     const itemMap = new Map(dbItems.map((i) => [i._id.toString(), i]))
 
     let subtotal = 0
     const orderLines = []
+    const stockAdjustments: Array<{
+      itemId: string
+      qty: number
+      unitPrice: number
+      optionSku?: string
+    }> = []
 
     for (const line of lines) {
       const dbItem = itemMap.get(line.itemId)
-      if (!dbItem) {
+      if (!dbItem || dbItem.state === "draft" || dbItem.state === "paused") {
         return failResponse(`Item ${line.itemId} is no longer available`, "ITEM_UNAVAILABLE", 400)
+      }
+      if (dbItem.state === "sold-out" || dbItem.stock < line.qty) {
+        return failResponse(
+          `Insufficient stock for ${dbItem.title}`,
+          "INSUFFICIENT_STOCK",
+          409
+        )
       }
 
       let price = dbItem.price
@@ -87,14 +104,26 @@ export async function POST(req: NextRequest) {
 
       if (line.optionSku) {
         const option = dbItem.options?.find((o) => o.sku === line.optionSku)
-        if (option) {
-          price = option.price
-          optionSnapshot = {
-            sku: option.sku,
-            size: option.size,
-            color: option.color,
-            label: option.label,
-          }
+        if (!option || !option.isEnabled) {
+          return failResponse(
+            `Selected option for ${dbItem.title} is unavailable`,
+            "OPTION_UNAVAILABLE",
+            400
+          )
+        }
+        if (option.stock < line.qty) {
+          return failResponse(
+            `Only ${option.stock} units available for ${dbItem.title} (${option.label})`,
+            "INSUFFICIENT_STOCK",
+            409
+          )
+        }
+        price = option.price
+        optionSnapshot = {
+          sku: option.sku,
+          size: option.size,
+          color: option.color,
+          label: option.label,
         }
       }
 
@@ -109,29 +138,119 @@ export async function POST(req: NextRequest) {
         imageSnapshot: coverImage,
       })
 
+      stockAdjustments.push({
+        itemId: dbItem._id.toString(),
+        qty: line.qty,
+        unitPrice: price,
+        optionSku: optionSnapshot?.sku,
+      })
+
       subtotal += price * line.qty
     }
 
-    // Shipping policy: free shipping over $150, else $12
-    const shipping = subtotal >= 150 ? 0 : 12
-    const tax = Math.round(subtotal * 0.08 * 100) / 100 // 8% estimated tax
-    const total = Math.round((subtotal + shipping + tax) * 100) / 100
+    // Validate promo code server-side if provided
+    let discount = 0
+    let appliedPromoId: string | null = null
+    let freeShipOverride = false
+
+    if (promoCode && promoCode.trim()) {
+      const cleanCode = promoCode.trim().toUpperCase()
+      const promoDoc = await PromoCode.findOne({ code: cleanCode }).lean()
+      if (promoDoc) {
+        const check = evaluatePromoDiscount(promoDoc, subtotal)
+        if (!check.valid) {
+          return failResponse(check.reason || "Invalid promo code", "INVALID_PROMO", 400)
+        }
+        discount = check.discount
+        appliedPromoId = promoDoc._id.toString()
+      } else if (cleanCode === "FREESHIP") {
+        freeShipOverride = true
+      } else {
+        return failResponse(`Promo code ${cleanCode} is invalid or expired`, "INVALID_PROMO", 400)
+      }
+    }
+
+    const freeThreshold = settingsDoc?.freeShippingThreshold ?? 150
+    const standardRate =
+      shippingMethod === "express"
+        ? settingsDoc?.expressShippingRate ?? 25
+        : freeShipOverride
+        ? 0
+        : settingsDoc?.standardShippingRate ?? 12
+    const taxRate = (settingsDoc?.taxRatePct ?? 8) / 100
+
+    const totals = computeOrderTotals({
+      subtotal,
+      discount,
+      freeShippingThreshold: shippingMethod === "express" ? Number.MAX_SAFE_INTEGER : freeThreshold,
+      standardShippingRate: standardRate,
+      taxRate,
+    })
+
+    // Atomic conditional stock decrement per line
+    const decremented: typeof stockAdjustments = []
+    for (const adj of stockAdjustments) {
+      const filter: Record<string, unknown> = {
+        _id: adj.itemId,
+        stock: { $gte: adj.qty },
+      }
+      const update: Record<string, unknown> = {
+        $inc: {
+          stock: -adj.qty,
+          "salesStats.units": adj.qty,
+          "salesStats.revenue": Math.round(adj.unitPrice * adj.qty * 100) / 100,
+        },
+      }
+      if (adj.optionSku) {
+        filter["options"] = { $elemMatch: { sku: adj.optionSku, stock: { $gte: adj.qty } } }
+        update.$inc = {
+          ...(update.$inc as Record<string, number>),
+          "options.$.stock": -adj.qty,
+        }
+      }
+
+      const updated = await Item.findOneAndUpdate(filter, update, { new: true })
+      if (!updated) {
+        // Rollback previously decremented lines
+        await Promise.all(
+          decremented.map((prev) =>
+            Item.updateOne(
+              prev.optionSku ? { _id: prev.itemId, "options.sku": prev.optionSku } : { _id: prev.itemId },
+              {
+                $inc: {
+                  stock: prev.qty,
+                  "salesStats.units": -prev.qty,
+                  "salesStats.revenue": -Math.round(prev.unitPrice * prev.qty * 100) / 100,
+                  ...(prev.optionSku ? { "options.$.stock": prev.qty } : {}),
+                },
+              }
+            )
+          )
+        )
+        return failResponse(
+          "An item in your bag just sold out before checkout completed",
+          "CONCURRENT_OUT_OF_STOCK",
+          409
+        )
+      }
+      if (updated.stock === 0 && updated.state === "live") {
+        await Item.updateOne({ _id: updated._id }, { $set: { state: "sold-out" } })
+      }
+      decremented.push(adj)
+    }
+
+    if (appliedPromoId) {
+      await PromoCode.updateOne({ _id: appliedPromoId }, { $inc: { usageCount: 1 } })
+    }
 
     const orderNo = generateOrderNumber()
-
     const order = await Order.create({
       orderNo,
       client: clientId,
       email: verifiedEmail,
       lines: orderLines,
-      totals: {
-        subtotal,
-        discount: 0,
-        shipping,
-        tax,
-        total,
-      },
-      currency: "USD",
+      totals,
+      currency: settingsDoc?.currency || "USD",
       state: "pending",
       payment: {
         provider: paymentProvider,
@@ -144,7 +263,7 @@ export async function POST(req: NextRequest) {
           state: "Order placed",
           at: new Date(),
           by: session?.user?.name || "Client",
-          note: "Order created successfully",
+          note: appliedPromoId && promoCode ? `Promo ${promoCode.toUpperCase()} applied` : "Order created successfully",
         },
       ],
     })

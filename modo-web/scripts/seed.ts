@@ -9,6 +9,10 @@ import User from "../models/User"
 import Order, { generateOrderNumber } from "../models/Order"
 import Review from "../models/Review"
 import PromoCode from "../models/PromoCode"
+import Exchange from "../models/Exchange"
+import Campaign from "../models/Campaign"
+import StoreSettings from "../models/StoreSettings"
+import HomeLayout from "../models/HomeLayout"
 import bcrypt from "bcryptjs"
 
 const SAMPLE_IMAGES = [
@@ -44,6 +48,10 @@ async function seed() {
     Order.deleteMany({}),
     Review.deleteMany({}),
     PromoCode.deleteMany({}),
+    Exchange.deleteMany({}),
+    Campaign.deleteMany({}),
+    StoreSettings.deleteMany({}),
+    HomeLayout.deleteMany({}),
   ])
 
   console.log("🧹 Cleared existing database records.")
@@ -459,7 +467,84 @@ async function seed() {
     await PromoCode.create(p)
   }
 
-  console.log("🎟️ Seeded 5 Active Promo Codes.")
+  // 11. Seed Exchanges, Campaigns, StoreSettings & HomeLayout
+  await Exchange.create([
+    {
+      exchangeNo: "EX-101",
+      orderNo: "VG-2026-891204",
+      clientName: "Sophia Chen",
+      clientEmail: client1.email,
+      pieceTitle: "Relaxed Wool Blazer (Size S → M)",
+      reason: "Fit adjustment",
+      status: "Approved",
+    },
+    {
+      exchangeNo: "EX-102",
+      orderNo: "VG-2026-441920",
+      clientName: "Julian Rivera",
+      clientEmail: client2.email,
+      pieceTitle: "Penny Loafer",
+      reason: "Color preference",
+      status: "Pending Inspection",
+    },
+  ])
+
+  await Campaign.create([
+    {
+      subject: "Autumn / Winter 2026: The Tactile Series",
+      audience: "All Clients",
+      state: "Sent",
+      sentAt: new Date(Date.now() - 7 * 86400000),
+      openRate: "48.2%",
+      recipientCount: 420,
+    },
+    {
+      subject: "Early Access: Biella Cashmere Editions",
+      audience: "Atelier & Clay Tiers",
+      state: "Sent",
+      sentAt: new Date(Date.now() - 14 * 86400000),
+      openRate: "62.1%",
+      recipientCount: 145,
+    },
+    {
+      subject: "Considered Living: Stoneware & Linen",
+      audience: "Living Segment",
+      state: "Draft",
+      openRate: "—",
+      recipientCount: 0,
+    },
+  ])
+
+  await StoreSettings.create({
+    key: "default",
+    storeName: "Virga",
+    tagline: "Considered Fashion & Living",
+    conciergeEmail: "concierge@virga.store",
+    freeShippingThreshold: 150,
+    standardShippingRate: 12,
+    expressShippingRate: 25,
+    taxRatePct: 8,
+    allowComplimentaryExchanges: true,
+    lowStockEmailAlerts: true,
+    lowStockThreshold: 5,
+    currency: "USD",
+  })
+
+  const liveBlocks = await HomeBlock.find().sort({ position: 1 }).lean()
+  await HomeLayout.create({
+    sections: [
+      { type: "hero", position: 0, isVisible: true },
+      { type: "collection-showcase", position: 1, isVisible: true },
+      ...liveBlocks.map((b, idx) => ({
+        type: "block" as const,
+        referenceId: b._id,
+        position: idx + 2,
+        isVisible: Boolean(b.isLive),
+      })),
+    ],
+  })
+
+  console.log("🎟️ Seeded Promo Codes, Exchanges, Campaigns, StoreSettings & HomeLayout.")
   console.log("✅ Seed completed successfully!")
   process.exit(0)
 }

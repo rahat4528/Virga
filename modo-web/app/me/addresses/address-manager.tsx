@@ -83,7 +83,7 @@ export function AddressManager({ initialAddresses }: AddressManagerProps) {
       }
 
       toast.success("Address added successfully")
-      setAddresses(data.data.addresses)
+      setAddresses(data.addresses || [])
       setIsOpen(false)
       resetForm()
       router.refresh()
@@ -109,7 +109,7 @@ export function AddressManager({ initialAddresses }: AddressManagerProps) {
       }
 
       toast.success("Address removed")
-      setAddresses(data.data.addresses)
+      setAddresses(data.addresses || [])
       router.refresh()
     } catch (err: any) {
       toast.error(err.message || "Failed to delete address")

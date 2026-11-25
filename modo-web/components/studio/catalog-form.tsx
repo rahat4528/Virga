@@ -9,23 +9,38 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
+import type { ItemDto } from "@/types/item"
 
-export function CatalogForm() {
+interface CatalogFormProps {
+  initialItem?: ItemDto
+}
+
+export function CatalogForm({ initialItem }: CatalogFormProps) {
   const router = useRouter()
+  const isEditing = Boolean(initialItem?._id)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const [title, setTitle] = useState("")
-  const [description, setDescription] = useState("")
-  const [summary, setSummary] = useState("")
-  const [price, setPrice] = useState("")
-  const [listPrice, setListPrice] = useState("")
-  const [stock, setStock] = useState("20")
-  const [imageUrl, setImageUrl] = useState("/cashmere-cardigan.jpg")
-  const [labels, setLabels] = useState("cashmere, tailoring, essential")
+  const initialCover =
+    initialItem?.gallery?.find((g) => g.isCover)?.src ||
+    initialItem?.gallery?.[0]?.src ||
+    "/cashmere-cardigan.jpg"
 
-  const [spotlight, setSpotlight] = useState(false)
-  const [isFresh, setIsFresh] = useState(true)
-  const [isOffer, setIsOffer] = useState(false)
+  const [title, setTitle] = useState(initialItem?.title || "")
+  const [description, setDescription] = useState(initialItem?.description || "")
+  const [summary, setSummary] = useState(initialItem?.summary || "")
+  const [price, setPrice] = useState(initialItem ? String(initialItem.price) : "")
+  const [listPrice, setListPrice] = useState(
+    initialItem?.listPrice !== undefined ? String(initialItem.listPrice) : ""
+  )
+  const [stock, setStock] = useState(initialItem ? String(initialItem.stock) : "20")
+  const [imageUrl, setImageUrl] = useState(initialCover)
+  const [labels, setLabels] = useState(
+    initialItem?.labels?.length ? initialItem.labels.join(", ") : "cashmere, tailoring, essential"
+  )
+
+  const [spotlight, setSpotlight] = useState(initialItem?.spotlight ?? false)
+  const [isFresh, setIsFresh] = useState(initialItem?.isFresh ?? true)
+  const [isOffer, setIsOffer] = useState(initialItem?.isOffer ?? false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -36,40 +51,49 @@ export function CatalogForm() {
 
     setIsSubmitting(true)
     try {
-      const res = await fetch("/api/studio/catalog", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title,
-          description,
-          summary,
-          price: parseFloat(price),
-          listPrice: listPrice ? parseFloat(listPrice) : undefined,
-          stock: parseInt(stock, 10) || 0,
-          gallery: [{ src: imageUrl, alt: title, isCover: true }],
-          labels: labels.split(",").map((l) => l.trim()).filter(Boolean),
-          state: "live",
-          spotlight,
-          isFresh,
-          isOffer,
-          details: [
-            { label: "Craft", value: "Virga Atelier Series" },
-            { label: "Care", value: "Specialist dry clean only" },
-          ],
-        }),
-      })
+      const payload = {
+        title,
+        description,
+        summary,
+        price: parseFloat(price),
+        listPrice: listPrice ? parseFloat(listPrice) : undefined,
+        stock: parseInt(stock, 10) || 0,
+        gallery: [{ src: imageUrl, alt: title, isCover: true }],
+        labels: labels.split(",").map((l) => l.trim()).filter(Boolean),
+        state: initialItem?.state || "live",
+        spotlight,
+        isFresh,
+        isOffer,
+        details: initialItem?.details?.length
+          ? initialItem.details
+          : [
+              { label: "Craft", value: "Virga Atelier Series" },
+              { label: "Care", value: "Specialist dry clean only" },
+            ],
+      }
+
+      const res = await fetch(
+        isEditing ? `/api/catalog/${initialItem!._id}` : "/api/studio/catalog",
+        {
+          method: isEditing ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      )
 
       const data = await res.json()
       if (res.ok && data.ok) {
-        toast.success("Piece successfully added to catalog!")
+        toast.success(
+          isEditing ? "Piece updated in catalog!" : "Piece successfully added to catalog!"
+        )
         router.push("/studio/catalog")
         router.refresh()
       } else {
-        toast.error(data.error?.message || "Failed to create piece")
+        toast.error(data.error?.message || "Failed to save piece")
       }
     } catch (err) {
       console.error(err)
-      toast.error("Network error while creating piece")
+      toast.error("Network error while saving piece")
     } finally {
       setIsSubmitting(false)
     }
@@ -78,7 +102,9 @@ export function CatalogForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl bg-card p-6 rounded-3xl border border-border/80 shadow-sm">
       <div className="space-y-4">
-        <h3 className="font-heading text-lg font-bold text-foreground">Piece Details</h3>
+        <h3 className="font-heading text-lg font-bold text-foreground">
+          {isEditing ? "Update Piece Details" : "Piece Details"}
+        </h3>
 
         <div className="space-y-2">
           <Label htmlFor="title">Title</Label>
@@ -197,8 +223,10 @@ export function CatalogForm() {
         {isSubmitting ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Publishing Piece…
+            {isEditing ? "Saving Changes…" : "Publishing Piece…"}
           </>
+        ) : isEditing ? (
+          "Save Catalog Changes"
         ) : (
           "Publish Piece to Catalog"
         )}
@@ -208,4 +236,3 @@ export function CatalogForm() {
 }
 
 export default CatalogForm
-

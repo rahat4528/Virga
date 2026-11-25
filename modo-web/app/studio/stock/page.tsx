@@ -1,22 +1,20 @@
 import dbConnect from "@/lib/db"
 import Item from "@/models/Item"
-import { formatPrice } from "@/lib/cn"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
+import { StockTable, type StockRowItem } from "@/components/studio/stock-table"
 
 export const dynamic = "force-dynamic"
 
 export default async function StudioStockPage() {
   await dbConnect()
 
-  const items = await Item.find().sort({ stock: 1 }).lean()
+  const itemDocs = await Item.find().sort({ stock: 1 }).lean()
+  const items: StockRowItem[] = itemDocs.map((it: any) => ({
+    _id: it._id.toString(),
+    title: it.title,
+    price: it.price,
+    stock: it.stock,
+    optionsCount: it.options?.length || 0,
+  }))
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -29,51 +27,7 @@ export default async function StudioStockPage() {
         </p>
       </div>
 
-      <div className="rounded-2xl border border-border/80 bg-card overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead>Piece</TableHead>
-              <TableHead>SKU Options</TableHead>
-              <TableHead>Unit Price</TableHead>
-              <TableHead>Units in Stock</TableHead>
-              <TableHead className="text-right">Inventory Health</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.map((item: any) => {
-              const isLowStock = item.stock > 0 && item.stock <= 5
-              const isOut = item.stock <= 0
-
-              return (
-                <TableRow key={item._id}>
-                  <TableCell className="font-semibold text-foreground text-sm">
-                    {item.title}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {item.options?.length ? `${item.options.length} SKUs defined` : "Standard SKU"}
-                  </TableCell>
-                  <TableCell className="text-sm font-medium">
-                    {formatPrice(item.price)}
-                  </TableCell>
-                  <TableCell className="font-bold text-sm">
-                    {item.stock} units
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Badge
-                      variant={isOut ? "destructive" : isLowStock ? "secondary" : "outline"}
-                      className="rounded-full text-[10px]"
-                    >
-                      {isOut ? "Depleted" : isLowStock ? "Low Stock Alert" : "Healthy"}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      </div>
+      <StockTable initialItems={items} />
     </div>
   )
 }
-

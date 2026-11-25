@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Star, CheckCircle } from "lucide-react"
+import { Star, CheckCircle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
@@ -24,33 +24,53 @@ interface ItemReviewsProps {
   initialReviews?: ReviewItem[]
 }
 
-export function ItemReviews({ ratingStats, initialReviews = [] }: ItemReviewsProps) {
+export function ItemReviews({ itemId, ratingStats, initialReviews = [] }: ItemReviewsProps) {
   const [reviews, setReviews] = useState<ReviewItem[]>(initialReviews)
+  const [stats, setStats] = useState(ratingStats)
   const [isFormOpen, setIsFormOpen] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [authorName, setAuthorName] = useState("")
   const [rating, setRating] = useState(5)
   const [comment, setComment] = useState("")
 
-  function handleReviewSubmit(e: React.FormEvent) {
+  async function handleReviewSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!comment.trim() || !authorName.trim()) {
       toast.error("Please provide your name and review comment")
       return
     }
 
-    const newReview: ReviewItem = {
-      authorName,
-      rating,
-      comment,
-      isVerifiedPurchase: true,
-      addedAt: new Date().toISOString(),
-    }
+    setIsSubmitting(true)
+    try {
+      const res = await fetch("/api/reviews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itemId,
+          authorName: authorName.trim(),
+          rating,
+          comment: comment.trim(),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) {
+        toast.error(data.error?.message || "Failed to submit review")
+        return
+      }
 
-    setReviews([newReview, ...reviews])
-    setIsFormOpen(false)
-    setComment("")
-    setAuthorName("")
-    toast.success("Thank you. Your review has been submitted.")
+      setReviews([data.item, ...reviews])
+      if (data.ratingStats) {
+        setStats(data.ratingStats)
+      }
+      setIsFormOpen(false)
+      setComment("")
+      setAuthorName("")
+      toast.success("Thank you. Your review has been published.")
+    } catch {
+      toast.error("Network error while submitting review")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -66,7 +86,7 @@ export function ItemReviews({ ratingStats, initialReviews = [] }: ItemReviewsPro
                 <Star
                   key={star}
                   className={`h-4 w-4 ${
-                    star <= Math.round(ratingStats.avg)
+                    star <= Math.round(stats.avg)
                       ? "fill-current"
                       : "stroke-current fill-transparent opacity-40"
                   }`}
@@ -74,10 +94,10 @@ export function ItemReviews({ ratingStats, initialReviews = [] }: ItemReviewsPro
               ))}
             </div>
             <span className="text-sm font-semibold text-foreground">
-              {ratingStats.avg > 0 ? ratingStats.avg.toFixed(1) : "New"}
+              {stats.avg > 0 ? stats.avg.toFixed(1) : "New"}
             </span>
             <span className="text-sm text-muted-foreground">
-              ({ratingStats.total || reviews.length} reviews)
+              ({stats.total || reviews.length} reviews)
             </span>
           </div>
         </div>
@@ -105,6 +125,7 @@ export function ItemReviews({ ratingStats, initialReviews = [] }: ItemReviewsPro
                   key={star}
                   onClick={() => setRating(star)}
                   className="p-1 hover:scale-110 transition-transform"
+                  aria-label={`Rate ${star} stars`}
                 >
                   <Star className={`h-6 w-6 ${star <= rating ? "fill-current" : "stroke-current fill-transparent"}`} />
                 </button>
@@ -121,6 +142,7 @@ export function ItemReviews({ ratingStats, initialReviews = [] }: ItemReviewsPro
               placeholder="e.g. Julian R."
               className="rounded-xl bg-background"
               required
+              disabled={isSubmitting}
             />
           </div>
 
@@ -133,11 +155,19 @@ export function ItemReviews({ ratingStats, initialReviews = [] }: ItemReviewsPro
               placeholder="Tell us about the fit, texture, and durability…"
               className="rounded-xl bg-background min-h-24"
               required
+              disabled={isSubmitting}
             />
           </div>
 
-          <Button type="submit" className="rounded-full px-6">
-            Submit Review
+          <Button type="submit" disabled={isSubmitting} className="rounded-full px-6">
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Publishing…
+              </>
+            ) : (
+              "Submit Review"
+            )}
           </Button>
         </form>
       )}
@@ -180,4 +210,3 @@ export function ItemReviews({ ratingStats, initialReviews = [] }: ItemReviewsPro
 }
 
 export default ItemReviews
-

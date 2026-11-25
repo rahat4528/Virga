@@ -47,13 +47,27 @@ const footerNav = [
 
 export function SiteFooter() {
   const [email, setEmail] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSubscribed, setIsSubscribed] = useState(false)
 
-  const handleSubscribe = (e: React.FormEvent) => {
+  const handleSubscribe = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (email.trim() && email.includes("@")) {
-      setIsSubscribed(true)
-      setEmail("")
+    if (!email.trim() || !email.includes("@")) return
+    setIsSubmitting(true)
+    try {
+      const res = await fetch("/api/newsletter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), source: "footer" }),
+      })
+      if (res.ok) {
+        setIsSubscribed(true)
+        setEmail("")
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -95,8 +109,8 @@ export function SiteFooter() {
                     placeholder="Enter your email address"
                     className="rounded-full bg-background border-border text-xs h-9.5"
                   />
-                  <Button type="submit" size="sm" className="rounded-full px-5 text-xs h-9.5 shrink-0">
-                    <span>Join</span>
+                  <Button type="submit" size="sm" disabled={isSubmitting} className="rounded-full px-5 text-xs h-9.5 shrink-0">
+                    <span>{isSubmitting ? "Joining..." : "Join"}</span>
                     <ArrowRight className="h-3 w-3 ml-1" />
                   </Button>
                 </form>

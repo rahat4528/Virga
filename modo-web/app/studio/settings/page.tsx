@@ -1,9 +1,26 @@
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
+import dbConnect from "@/lib/db"
+import StoreSettings from "@/models/StoreSettings"
+import { SettingsEditor, type StoreSettingsValues } from "@/components/studio/settings-editor"
 
-export default function StudioSettingsPage() {
+export const dynamic = "force-dynamic"
+
+export default async function StudioSettingsPage() {
+  await dbConnect()
+  const doc = await StoreSettings.findOne({ key: "default" }).lean()
+
+  const initialValues: StoreSettingsValues = {
+    storeName: doc?.storeName ?? "Virga",
+    tagline: doc?.tagline ?? "Considered Fashion & Living",
+    conciergeEmail: doc?.conciergeEmail ?? "concierge@virga.store",
+    freeShippingThreshold: doc?.freeShippingThreshold ?? 150,
+    standardShippingRate: doc?.standardShippingRate ?? 12,
+    expressShippingRate: doc?.expressShippingRate ?? 25,
+    taxRatePct: doc?.taxRatePct ?? 8,
+    allowComplimentaryExchanges: doc?.allowComplimentaryExchanges ?? true,
+    lowStockEmailAlerts: doc?.lowStockEmailAlerts ?? true,
+    lowStockThreshold: doc?.lowStockThreshold ?? 5,
+  }
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       <div className="pb-2 border-b border-border/60">
@@ -11,60 +28,11 @@ export default function StudioSettingsPage() {
           Studio Configuration
         </h1>
         <p className="text-xs text-muted-foreground mt-1">
-          Store profile, currency, shipping zones, and integration keys.
+          Store profile, currency, shipping zones, and integration policies.
         </p>
       </div>
 
-      <div className="p-6 rounded-3xl bg-card border border-border/80 shadow-sm space-y-6">
-        <div className="space-y-4">
-          <h3 className="font-heading text-base font-bold text-foreground">Store Identity</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Store Name</Label>
-              <Input defaultValue="Virga" className="rounded-xl" />
-            </div>
-            <div className="space-y-2">
-              <Label>Tagline</Label>
-              <Input defaultValue="Considered Fashion & Living" className="rounded-xl" />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label>Contact Concierge Email</Label>
-            <Input defaultValue="concierge@virga.store" className="rounded-xl" />
-          </div>
-        </div>
-
-        <div className="pt-4 border-t border-border/60 space-y-4">
-          <h3 className="font-heading text-base font-bold text-foreground">Shipping Policies</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Free Shipping Threshold ($)</Label>
-              <Input defaultValue="150" type="number" className="rounded-xl" />
-            </div>
-            <div className="space-y-2">
-              <Label>Standard Shipping Flat Rate ($)</Label>
-              <Input defaultValue="12" type="number" className="rounded-xl" />
-            </div>
-          </div>
-        </div>
-
-        <div className="pt-4 border-t border-border/60 space-y-3">
-          <h3 className="font-heading text-base font-bold text-foreground">Operations Toggles</h3>
-          <div className="flex items-center justify-between">
-            <Label className="cursor-pointer">Enable Complimentary Exchanges (30 days)</Label>
-            <Switch defaultChecked />
-          </div>
-          <div className="flex items-center justify-between">
-            <Label className="cursor-pointer">Automatic Low-Stock Email Alerts</Label>
-            <Switch defaultChecked />
-          </div>
-        </div>
-
-        <Button size="sm" className="rounded-full px-6">
-          Save Configuration
-        </Button>
-      </div>
+      <SettingsEditor initialValues={initialValues} />
     </div>
   )
 }
-

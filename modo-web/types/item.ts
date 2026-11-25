@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { isSafeImageSource } from "../lib/commerce"
 
 export const ItemOptionSchema = z.object({
   label: z.string().min(1, "Option label is required"),
@@ -12,7 +13,7 @@ export const ItemOptionSchema = z.object({
 })
 
 export const ItemGallerySchema = z.object({
-  src: z.string().url("Image URL must be valid"),
+  src: z.string().refine(isSafeImageSource, "Image URL or local path must be valid"),
   alt: z.string().default(""),
   isCover: z.boolean().default(false),
 })

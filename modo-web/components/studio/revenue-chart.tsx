@@ -9,17 +9,15 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts"
+import type { MonthlyRevenuePoint } from "@/lib/commerce"
 
-const chartData = [
-  { month: "May", revenue: 18400, orders: 42 },
-  { month: "Jun", revenue: 22100, orders: 54 },
-  { month: "Jul", revenue: 29800, orders: 68 },
-  { month: "Aug", revenue: 34500, orders: 81 },
-  { month: "Sep", revenue: 41200, orders: 96 },
-  { month: "Oct", revenue: 49800, orders: 114 },
-]
+interface RevenueChartProps {
+  data?: MonthlyRevenuePoint[]
+}
 
-export function RevenueChart() {
+export function RevenueChart({ data = [] }: RevenueChartProps) {
+  const hasOrders = data.some((d) => d.revenue > 0 || d.orders > 0)
+
   return (
     <div className="p-6 rounded-3xl bg-card border border-border/80 shadow-sm space-y-4">
       <div className="flex items-center justify-between">
@@ -28,17 +26,17 @@ export function RevenueChart() {
             Revenue Performance
           </h3>
           <p className="text-xs text-muted-foreground">
-            Trailing 6 months gross revenue and volume
+            Trailing 6 months net revenue and order volume from MongoDB
           </p>
         </div>
         <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-secondary/15 text-secondary">
-          +32% Period Growth
+          {hasOrders ? "Live Order Ledger" : "Awaiting Orders"}
         </span>
       </div>
 
       <div className="h-72 w-full pt-4">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+          <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="clayGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.35} />
@@ -51,7 +49,7 @@ export function RevenueChart() {
               stroke="var(--muted-foreground)"
               fontSize={12}
               tickLine={false}
-              tickFormatter={(v) => `$${v / 1000}k`}
+              tickFormatter={(v) => (v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v}`)}
             />
             <Tooltip
               formatter={(value: number) => [`$${value.toLocaleString()}`, "Revenue"]}
@@ -78,4 +76,3 @@ export function RevenueChart() {
 }
 
 export default RevenueChart
-

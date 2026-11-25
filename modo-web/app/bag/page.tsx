@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import TopBar from "@/components/top-bar"
 import SiteFooter from "@/components/site-footer"
@@ -9,46 +9,86 @@ import BagSummary from "@/components/bag-summary"
 import TrailNav from "@/components/trail-nav"
 import { Button } from "@/components/ui/button"
 import { ShoppingBag } from "lucide-react"
+import { getStoredBag, saveStoredBag, getStoredPromo, saveStoredPromo } from "@/lib/bag"
 
 export default function BagPage() {
   const [items, setItems] = useState<BagItemData[]>([])
   const [isLoaded, setIsLoaded] = useState(false)
+  const [appliedPromoCode, setAppliedPromoCode] = useState("")
   const [promoDiscount, setPromoDiscount] = useState(0)
+  const [freeShippingOverride, setFreeShippingOverride] = useState(false)
 
-  useEffect(() => {
+  const validatePromo = useCallback(async (code: string, currentSubtotal: number) => {
+    if (!code || currentSubtotal <= 0) {
+      setPromoDiscount(0)
+      setFreeShippingOverride(false)
+      return
+    }
     try {
-      const stored = localStorage.getItem("virga_bag") || localStorage.getItem("modo_bag")
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        if (Array.isArray(parsed)) {
-          setItems(parsed)
-        }
+      const res = await fetch("/api/promos/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, subtotal: currentSubtotal }),
+      })
+      const data = await res.json()
+      if (res.ok && data.ok) {
+        setAppliedPromoCode(data.code)
+        setPromoDiscount(data.discount || 0)
+        setFreeShippingOverride(Boolean(data.freeShipping))
+      } else {
+        setAppliedPromoCode("")
+        setPromoDiscount(0)
+        setFreeShippingOverride(false)
+        saveStoredPromo("")
       }
     } catch {
-      // ignore
-    } finally {
-      setIsLoaded(true)
+      // keep silent on network hiccup
     }
   }, [])
+
+  useEffect(() => {
+    const bagItems = getStoredBag()
+    setItems(bagItems)
+    const savedPromo = getStoredPromo()
+    const initialSubtotal = bagItems.reduce((sum, item) => sum + item.price * item.qty, 0)
+    if (savedPromo && initialSubtotal > 0) {
+      validatePromo(savedPromo, initialSubtotal)
+    }
+    setIsLoaded(true)
+  }, [validatePromo])
 
   function updateQty(id: string, qty: number) {
     const updated = items.map((item) => (item.id === id ? { ...item, qty } : item))
     setItems(updated)
-    localStorage.setItem("virga_bag", JSON.stringify(updated))
+    saveStoredBag(updated)
+    const nextSubtotal = updated.reduce((sum, item) => sum + item.price * item.qty, 0)
+    if (appliedPromoCode) {
+      validatePromo(appliedPromoCode, nextSubtotal)
+    }
   }
 
   function removeItem(id: string) {
     const updated = items.filter((item) => item.id !== id)
     setItems(updated)
-    localStorage.setItem("virga_bag", JSON.stringify(updated))
+    saveStoredBag(updated)
+    const nextSubtotal = updated.reduce((sum, item) => sum + item.price * item.qty, 0)
+    if (appliedPromoCode) {
+      validatePromo(appliedPromoCode, nextSubtotal)
+    }
   }
 
-  function handleApplyPromo(code: string) {
-    if (code === "VIRGA10" || code === "MODO10") {
-      setPromoDiscount(Math.round(subtotal * 0.1 * 100) / 100)
-    } else if (code === "FREESHIP") {
-      setPromoDiscount(12)
-    }
+  function handleApplyPromo(result: { code: string; discount: number; freeShipping: boolean }) {
+    setAppliedPromoCode(result.code)
+    setPromoDiscount(result.discount)
+    setFreeShippingOverride(result.freeShipping)
+    saveStoredPromo(result.code)
+  }
+
+  function handleClearPromo() {
+    setAppliedPromoCode("")
+    setPromoDiscount(0)
+    setFreeShippingOverride(false)
+    saveStoredPromo("")
   }
 
   const subtotal = items.reduce((sum, item) => sum + item.price * item.qty, 0)
@@ -100,7 +140,10 @@ export default function BagPage() {
               <BagSummary
                 subtotal={subtotal}
                 onApplyPromo={handleApplyPromo}
+                onClearPromo={handleClearPromo}
+                appliedPromoCode={appliedPromoCode}
                 promoDiscount={promoDiscount}
+                freeShippingOverride={freeShippingOverride}
               />
             </div>
           </div>
@@ -110,4 +153,3 @@ export default function BagPage() {
     </div>
   )
 }
-

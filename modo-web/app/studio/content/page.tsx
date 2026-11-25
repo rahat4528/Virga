@@ -1,24 +1,81 @@
+import { promises as fs } from "fs"
+import path from "path"
 import dbConnect from "@/lib/db"
 import { HeroBanner, HomeBlock } from "@/models/Blocks"
 import JournalEntry from "@/models/JournalEntry"
 import AssetLibrary from "@/components/studio/asset-library"
 import ArticlesTable from "@/components/studio/articles-table"
 import PagesTable from "@/components/studio/pages-table"
+import {
+  HomeBlocksManager,
+  HeroBannerEditor,
+  QuickJournalForm,
+  type StudioHomeBlockRow,
+  type StudioHeroBannerState,
+} from "@/components/studio/content-cms-manager"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
 
 export const dynamic = "force-dynamic"
+
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".avif", ".svg"])
+
+async function readLocalAssets() {
+  try {
+    const publicDir = path.join(process.cwd(), "public")
+    const entries = await fs.readdir(publicDir, { withFileTypes: true })
+    const files = await Promise.all(
+      entries
+        .filter((e) => e.isFile() && IMAGE_EXTENSIONS.has(path.extname(e.name).toLowerCase()))
+        .map(async (e) => {
+          const stat = await fs.stat(path.join(publicDir, e.name))
+          const kb = Math.max(1, Math.round(stat.size / 1024))
+          return {
+            id: e.name,
+            src: `/${e.name}`,
+            name: e.name,
+            size: kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb} KB`,
+          }
+        })
+    )
+    return files.sort((a, b) => a.name.localeCompare(b.name))
+  } catch {
+    return []
+  }
+}
 
 export default async function StudioContentPage() {
   await dbConnect()
 
-  const [banner, blocks, articleDocs] = await Promise.all([
+  const [banner, blockDocs, articleDocs, localAssets] = await Promise.all([
     HeroBanner.findOne({ isLive: true }).lean(),
     HomeBlock.find().sort({ position: 1 }).lean(),
     JournalEntry.find().sort({ publishedAt: -1 }).lean(),
+    readLocalAssets(),
   ])
 
   const articles = JSON.parse(JSON.stringify(articleDocs))
+  const blocks: StudioHomeBlockRow[] = blockDocs.map((b: any) => ({
+    _id: b._id.toString(),
+    heading: b.heading,
+    slug: b.slug,
+    kind: b.kind,
+    pickingMode: b.picking?.mode || "auto",
+    layout: b.display?.layout || "grid",
+    columns: b.display?.columns || 4,
+    isLive: Boolean(b.isLive),
+  }))
+
+  const heroState: StudioHeroBannerState = {
+    headline: banner?.headline || "Form, Function & Purpose",
+    subline:
+      banner?.subline ||
+      "An exploration of sculptural silhouettes, unbleached linen, and double-faced virgin wool.",
+    backdrop: banner?.backdrop || "/elegant-fashion-model-in-minimalist-setting.jpg",
+    primaryLabel: banner?.primaryCta?.label || "Explore Collection",
+    primaryHref: banner?.primaryCta?.href || "/shop",
+    secondaryLabel: banner?.secondaryCta?.label || "Atelier Story",
+    secondaryHref: banner?.secondaryCta?.href || "/story",
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -40,68 +97,23 @@ export default async function StudioContentPage() {
           <TabsTrigger value="pages" className="rounded-xl text-xs">Site Pages</TabsTrigger>
         </TabsList>
 
-        {/* Home Blocks tab */}
         <TabsContent value="blocks" className="space-y-4">
-          <div className="p-6 rounded-3xl bg-card border border-border/80 shadow-sm space-y-4">
-            <h3 className="font-heading text-lg font-bold text-foreground">
-              Homepage Layout Blocks ({blocks.length} active)
-            </h3>
-            <div className="space-y-3">
-              {blocks.map((block: any) => (
-                <div
-                  key={block._id}
-                  className="flex items-center justify-between p-4 rounded-2xl bg-muted/40 border border-border/60"
-                >
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-semibold text-sm text-foreground">{block.heading}</span>
-                      <Badge variant="outline" className="rounded-full text-[10px] uppercase">
-                        {block.kind}
-                      </Badge>
-                    </div>
-                    <span className="text-xs text-muted-foreground block mt-0.5">
-                      Slug: /{block.slug} · Picking mode: {block.picking?.mode} · Layout: {block.display?.layout} ({block.display?.columns} cols)
-                    </span>
-                  </div>
-                  <Badge variant={block.isLive ? "default" : "secondary"} className="rounded-full text-[10px]">
-                    {block.isLive ? "Live" : "Draft"}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </div>
+          <HomeBlocksManager initialBlocks={blocks} />
         </TabsContent>
 
-        {/* Hero Banner tab */}
         <TabsContent value="hero" className="space-y-4">
-          <div className="p-6 rounded-3xl bg-card border border-border/80 shadow-sm space-y-4">
-            <h3 className="font-heading text-lg font-bold text-foreground">Active Hero Banner</h3>
-            {banner ? (
-              <div className="p-5 rounded-2xl bg-muted/40 border border-border/60 space-y-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-primary">Live Headline</span>
-                <p className="font-heading text-2xl font-bold text-foreground">{banner.headline}</p>
-                <p className="text-sm text-muted-foreground">{banner.subline}</p>
-                <div className="pt-2 text-xs text-muted-foreground">
-                  Primary Button: <span className="font-medium text-foreground">{banner.primaryCta?.label}</span> → {banner.primaryCta?.href}
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">No banner currently live.</p>
-            )}
-          </div>
+          <HeroBannerEditor initialBanner={heroState} />
         </TabsContent>
 
-        {/* Journal tab */}
-        <TabsContent value="journal" className="space-y-4">
+        <TabsContent value="journal" className="space-y-6">
+          <QuickJournalForm />
           <ArticlesTable articles={articles} />
         </TabsContent>
 
-        {/* Asset Library tab */}
         <TabsContent value="assets" className="space-y-4">
-          <AssetLibrary />
+          <AssetLibrary initialAssets={localAssets} />
         </TabsContent>
 
-        {/* Pages tab */}
         <TabsContent value="pages" className="space-y-4">
           <PagesTable />
         </TabsContent>
@@ -109,4 +121,3 @@ export default async function StudioContentPage() {
     </div>
   )
 }
-

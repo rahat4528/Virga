@@ -1,8 +1,50 @@
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Heart } from "lucide-react"
+import { auth } from "@/auth"
+import { redirect } from "next/navigation"
+import dbConnect from "@/lib/db"
+import Wishlist from "@/models/Wishlist"
+import Item from "@/models/Item"
+import { WishlistClient } from "./wishlist-client"
+import type { StoredWishlistItem } from "@/lib/bag"
 
-export default function MeWishlistPage() {
+export const dynamic = "force-dynamic"
+
+export default async function MeWishlistPage() {
+  const session = await auth()
+  if (!session?.user) {
+    redirect("/login?callbackUrl=/me/wishlist")
+  }
+
+  let dbItems: StoredWishlistItem[] = []
+  try {
+    await dbConnect()
+    const doc = await Wishlist.findOne({ client: session.user.id })
+      .populate({
+        path: "items",
+        model: Item,
+        select: "title slug price listPrice gallery collection",
+        populate: { path: "collection", select: "title" },
+      })
+      .lean()
+
+    const rawItems = (doc?.items || []) as Array<Record<string, any>>
+    dbItems = rawItems
+      .filter((it) => it && it._id && it.slug)
+      .map((it) => ({
+        itemId: it._id.toString(),
+        title: it.title,
+        slug: it.slug,
+        price: it.price,
+        listPrice: it.listPrice,
+        image:
+          it.gallery?.find((g: { isCover?: boolean }) => g.isCover)?.src ||
+          it.gallery?.[0]?.src ||
+          "/placeholder.jpg",
+        collectionTitle: it.collection?.title,
+      }))
+  } catch (error) {
+    console.warn("Failed to load wishlist:", error)
+  }
+
   return (
     <div className="space-y-6">
       <div className="pb-3 border-b border-border/60">
@@ -14,17 +56,7 @@ export default function MeWishlistPage() {
         </p>
       </div>
 
-      <div className="p-12 rounded-3xl bg-card border border-border/80 text-center space-y-3">
-        <Heart className="h-8 w-8 text-primary/40 mx-auto" />
-        <h3 className="font-heading text-base font-semibold text-foreground">Your Wishlist is Empty</h3>
-        <p className="text-xs text-muted-foreground max-w-xs mx-auto">
-          Save your favorite pieces while browsing by clicking the heart icon on any piece.
-        </p>
-        <Button asChild size="sm" className="rounded-full text-xs">
-          <Link href="/shop">Browse Catalog</Link>
-        </Button>
-      </div>
+      <WishlistClient initialDbItems={dbItems} />
     </div>
   )
 }
-

@@ -79,9 +79,32 @@ export default async function ItemDetailPage({ params }: ItemPageProps) {
       : ""
 
   const hasDiscount = item.listPrice && item.listPrice > item.price
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://virga.store"
+  const productJsonLd = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: item.title,
+    description: item.summary || item.description,
+    image: item.gallery?.map((g) => (g.src.startsWith("/") ? `${siteUrl}${g.src}` : g.src)),
+    brand: { "@type": "Brand", name: "Virga" },
+    offers: {
+      "@type": "Offer",
+      priceCurrency: "USD",
+      price: item.price,
+      availability:
+        item.state === "sold-out"
+          ? "https://schema.org/OutOfStock"
+          : "https://schema.org/InStock",
+      url: `${siteUrl}/shop/${item.slug}`,
+    },
+  }).replace(/</g, "\\u003c")
 
   return (
     <div className="flex flex-col min-h-screen bg-background">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: productJsonLd }}
+      />
       <TopBar />
       <main className="flex-1 container-virga py-6 sm:py-8 space-y-12">
         <TrailNav

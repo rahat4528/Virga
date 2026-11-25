@@ -15,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Trash2, Edit, Search } from "lucide-react"
+import { Trash2, Edit, Search, ExternalLink } from "lucide-react"
 import { toast } from "sonner"
 import type { ItemDto } from "@/types/item"
 
@@ -165,9 +165,14 @@ export function CatalogTable({ initialItems = [] }: CatalogTableProps) {
                       </button>
                     </TableCell>
                     <TableCell className="text-right space-x-1">
-                      <Button variant="ghost" size="icon" asChild className="h-8 w-8 rounded-full">
-                        <Link href={`/shop/${item.slug}`} target="_blank">
+                      <Button variant="ghost" size="icon" asChild className="h-8 w-8 rounded-full" title="Edit piece">
+                        <Link href={`/studio/catalog/${item._id}`}>
                           <Edit className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                      <Button variant="ghost" size="icon" asChild className="h-8 w-8 rounded-full" title="View on storefront">
+                        <Link href={`/shop/${item.slug}`} target="_blank">
+                          <ExternalLink className="h-4 w-4" />
                         </Link>
                       </Button>
                       <Button

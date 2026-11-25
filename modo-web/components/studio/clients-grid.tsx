@@ -1,3 +1,4 @@
+import Link from "next/link"
 import {
   Table,
   TableBody,
@@ -7,6 +8,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Eye } from "lucide-react"
 
 export interface ClientRowData {
   _id: string
@@ -32,12 +35,13 @@ export function ClientsGrid({ clients = [] }: ClientsGridProps) {
             <TableHead>Role</TableHead>
             <TableHead>Phone</TableHead>
             <TableHead>Member Since</TableHead>
+            <TableHead className="text-right">Profile</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {clients.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+              <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
                 No clients found.
               </TableCell>
             </TableRow>
@@ -45,7 +49,9 @@ export function ClientsGrid({ clients = [] }: ClientsGridProps) {
             clients.map((c) => (
               <TableRow key={c._id}>
                 <TableCell className="font-semibold text-foreground">
-                  {c.name}
+                  <Link href={`/studio/clients/${c._id}`} className="hover:text-primary transition-colors">
+                    {c.name}
+                  </Link>
                 </TableCell>
                 <TableCell className="text-sm text-foreground/90">
                   {c.email}
@@ -61,6 +67,13 @@ export function ClientsGrid({ clients = [] }: ClientsGridProps) {
                 <TableCell className="text-xs text-muted-foreground">
                   {new Date(c.createdAt).toLocaleDateString()}
                 </TableCell>
+                <TableCell className="text-right">
+                  <Button variant="ghost" size="icon" asChild className="h-8 w-8 rounded-full">
+                    <Link href={`/studio/clients/${c._id}`}>
+                      <Eye className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                </TableCell>
               </TableRow>
             ))
           )}
@@ -71,4 +84,3 @@ export function ClientsGrid({ clients = [] }: ClientsGridProps) {
 }
 
 export default ClientsGrid
-

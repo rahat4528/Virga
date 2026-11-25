@@ -8,20 +8,25 @@ import OrdersGrid, { type OrderRowData } from "@/components/studio/orders-grid"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { PlusCircle, ArrowRight } from "lucide-react"
+import { aggregateMonthlyRevenue } from "@/lib/commerce"
 
 export const dynamic = "force-dynamic"
 
 export default async function StudioDashboardPage() {
   await dbConnect()
 
-  const [ordersDocs, itemsCount, clientsCount] = await Promise.all([
+  const [allOrders, recentOrdersDocs, itemsCount, clientsCount] = await Promise.all([
+    Order.find().select("totals.total state addedAt").lean(),
     Order.find().sort({ addedAt: -1 }).limit(10).lean(),
     Item.countDocuments({ state: "live" }),
     User.countDocuments({ role: "client" }),
   ])
 
-  const totalRevenue = ordersDocs.reduce((acc, ord) => acc + (ord.totals?.total || 0), 0)
-  const orders = JSON.parse(JSON.stringify(ordersDocs)) as OrderRowData[]
+  const totalRevenue = allOrders
+    .filter((ord) => ord.state !== "cancelled" && ord.state !== "refunded")
+    .reduce((acc, ord) => acc + (ord.totals?.total || 0), 0)
+  const orders = JSON.parse(JSON.stringify(recentOrdersDocs)) as OrderRowData[]
+  const chartData = aggregateMonthlyRevenue(allOrders)
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
@@ -48,14 +53,14 @@ export default async function StudioDashboardPage() {
       <KpiCards
         stats={{
           revenue: totalRevenue,
-          ordersCount: ordersDocs.length,
+          ordersCount: allOrders.length,
           clientsCount,
           itemsCount,
         }}
       />
 
       {/* Charts */}
-      <RevenueChart />
+      <RevenueChart data={chartData} />
 
       {/* Recent Orders */}
       <div className="space-y-4">
@@ -75,4 +80,3 @@ export default async function StudioDashboardPage() {
     </div>
   )
 }
-

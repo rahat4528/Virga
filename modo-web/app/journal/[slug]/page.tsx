@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation"
+import type { Metadata } from "next"
 import Image from "next/image"
 import Link from "next/link"
 import TopBar from "@/components/top-bar"
@@ -13,6 +14,17 @@ interface JournalSlugProps {
 }
 
 export const dynamic = "force-dynamic"
+
+export async function generateMetadata({ params }: JournalSlugProps): Promise<Metadata> {
+  await dbConnect()
+  const { slug } = await params
+  const entry = await JournalEntry.findOne({ slug, state: "published" }).lean()
+  if (!entry) return { title: "Journal Entry Not Found" }
+  return {
+    title: entry.meta?.metaTitle || entry.title,
+    description: entry.meta?.metaDescription || entry.excerpt,
+  }
+}
 
 export default async function JournalArticlePage({ params }: JournalSlugProps) {
   await dbConnect()
